@@ -258,6 +258,27 @@ def test_min_p_sampling(batch_size, vocab_size, p):
 
 @pytest.mark.parametrize("batch_size", [1, 99, 989])
 @pytest.mark.parametrize("vocab_size", [111, 32000, 128256])
+@pytest.mark.parametrize("p", [0.05, 0.1, 0.2, 0.7, 1])
+def test_min_p_sampling_from_logits(batch_size, vocab_size, p):
+    torch.manual_seed(42)
+    logits = torch.randn(batch_size, vocab_size, device="cuda:0") * 5
+    probs = torch.softmax(logits, dim=-1)
+    sorted_prob, indices = torch.sort(probs, descending=False)
+    top_probs = sorted_prob[:, -1].unsqueeze(-1)
+    scaled_p = p * top_probs
+    mask = torch.zeros(batch_size, vocab_size, dtype=torch.int32, device="cuda:0")
+    mask.scatter_add_(1, indices, (sorted_prob >= scaled_p).int())
+    min_p_tensor = torch.full((batch_size,), p, device="cuda:0")
+
+    num_trails = 1000
+    for _ in range(num_trails):
+        samples = flashinfer.sampling.min_p_sampling_from_logits(logits, min_p_tensor)
+
+        assert torch.all(mask[torch.arange(batch_size), samples] == 1)
+
+
+@pytest.mark.parametrize("batch_size", [1, 99, 989])
+@pytest.mark.parametrize("vocab_size", [111, 32000, 128256])
 @pytest.mark.parametrize("p", [0.1, 0.5])
 def test_top_k_top_p_joint_sampling_from_probs(batch_size, vocab_size, p):
     torch.manual_seed(42)

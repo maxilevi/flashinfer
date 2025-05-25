@@ -16,6 +16,7 @@ limitations under the License.
 
 from types import SimpleNamespace
 from typing import Optional, Union
+import math
 
 import torch
 
@@ -802,6 +803,80 @@ def min_p_sampling_from_probs(
             raise ValueError("Input probs contains NaN.")
     return get_sampling_module().min_p_sampling_from_probs(
         probs, indices, *_to_tensor_scalar_tuple(min_p), deterministic, generator
+    )
+
+
+def min_p_sampling_from_logits(
+    logits: torch.Tensor,
+    min_p: Union[torch.Tensor, float],
+    indices: Optional[torch.Tensor] = None,
+    deterministic: bool = True,
+    generator: Optional[torch.Generator] = None,
+    check_nan: bool = False,
+) -> torch.Tensor:
+    """Sample from logits using ``min_p`` filtering with the Gumbel-Max trick.
+
+    This function is equivalent to applying ``min_p_sampling_from_probs`` to
+    ``softmax(logits)`` but avoids explicit probability computation by masking
+    logits and reusing :func:`sampling_from_logits`.
+
+    Parameters
+    ----------
+    logits: torch.Tensor
+        Logits for sampling. When ``indices`` is not provided the shape should
+        be ``(batch_size, num_classes)``. When ``indices`` is provided the shape
+        should be ``(unique_batch_size, num_classes)`` where
+        ``unique_batch_size`` is the number of unique probability distributions.
+    min_p: Union[torch.Tensor, float]
+        Either a scalar or a tensor of shape ``(batch_size,)`` representing the
+        ``min_p`` threshold. If a tensor, each request has its own threshold.
+    indices: Optional[torch.Tensor]
+        Optional indices tensor of shape ``(batch_size,)`` that maps each output
+        to a row in ``logits``.
+    deterministic: bool
+        Whether to use deterministic kernel implementation. This argument is kept
+        for compatibility with other sampling functions.
+    generator: Optional[torch.Generator]
+        Random number generator for sampling.
+    check_nan: bool
+        Whether to check ``logits`` for ``NaN`` values.
+
+    Returns
+    -------
+    samples: torch.Tensor
+        Sampled categories with shape ``(batch_size,)``.
+    """
+
+    if check_nan:
+        if torch.any(torch.isnan(logits)):
+            raise ValueError("Input logits contains NaN.")
+
+    device = logits.device
+    if indices is not None:
+        gathered_logits = logits.index_select(0, indices)
+    else:
+        gathered_logits = logits
+
+    gathered_logits = gathered_logits.float()
+
+    if isinstance(min_p, torch.Tensor):
+        log_p = torch.log(min_p.float()).unsqueeze(-1)
+    else:
+        log_p = math.log(float(min_p))
+
+    max_logits = gathered_logits.max(dim=-1, keepdim=True).values
+    pivot = max_logits + log_p
+
+    masked_logits = torch.where(
+        gathered_logits >= pivot,
+        gathered_logits,
+        torch.tensor(-float("inf"), device=device),
+    )
+
+    return sampling_from_logits(
+        masked_logits,
+        deterministic=deterministic,
+        generator=generator,
     )
 
 
