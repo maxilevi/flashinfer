@@ -44,6 +44,7 @@ TORCH_COMPILE_FNS = [
     flashinfer.sampling.top_p_sampling_from_probs,
     flashinfer.sampling.top_k_sampling_from_probs,
     flashinfer.sampling.min_p_sampling_from_probs,
+    flashinfer.sampling.min_p_sampling_from_logits,
     flashinfer.sampling.top_k_top_p_sampling_from_probs,
     flashinfer.sampling.top_p_renorm_probs,
     flashinfer.sampling.top_k_renorm_probs,
